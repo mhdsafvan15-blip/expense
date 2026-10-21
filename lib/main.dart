@@ -6,8 +6,6 @@ import 'screens/transaction_screen.dart';
 import 'screens/credit_screen.dart';
 import 'screens/profile_screen.dart';
 
-// Keep your existing screen and color imports.
-
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 

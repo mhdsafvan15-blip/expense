@@ -88,7 +88,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
       ScaffoldMessenger.of(
         context,
-      ).showSnackBar(const SnackBar(content: Text('Expense deleted')));
+      ).showSnackBar(SnackBar(content: Text('Expense deleted')));
     } catch (e) {
       if (!mounted) return;
 
@@ -103,7 +103,10 @@ class _HomeScreenState extends State<HomeScreen> {
     return Scaffold(
       backgroundColor: AppColors.background,
       appBar: AppBar(
-        title: Text('Expence', style: TextStyle(fontWeight: FontWeight.bold)),
+        title: Text('Expenzia', style: TextStyle(fontWeight: FontWeight.bold)),
+        actions: [
+          IconButton(onPressed: _loadExpenses, icon: Icon(Icons.refresh)),
+        ],
       ),
       body: RefreshIndicator(
         onRefresh: _loadExpenses,
@@ -173,7 +176,10 @@ class _HomeScreenState extends State<HomeScreen> {
               Column(
                 children: [
                   Text(_error!),
-                  TextButton(onPressed: _loadExpenses, child: Text('Retry')),
+                  TextButton(
+                    onPressed: _loadExpenses,
+                    child: const Text('Retry'),
+                  ),
                 ],
               )
             else if (_expenses.isEmpty)

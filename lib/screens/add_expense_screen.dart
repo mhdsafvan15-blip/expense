@@ -1,9 +1,7 @@
-import 'dart:async';
-
 import 'package:flutter/material.dart';
 import 'package:nenn/model/expense_model.dart';
 
-import '../services/expense_service.dart';
+import '../database/database_helper.dart';
 import '../utils/app_colors.dart';
 
 class AddExpenseScreen extends StatefulWidget {
@@ -16,109 +14,99 @@ class AddExpenseScreen extends StatefulWidget {
 class _AddExpenseScreenState extends State<AddExpenseScreen> {
   final _formKey = GlobalKey<FormState>();
 
-  final _titleController = TextEditingController();
-  final _amountController = TextEditingController();
-  final _descriptionController = TextEditingController();
+  final TextEditingController titleController = TextEditingController();
+  final TextEditingController amountController = TextEditingController();
+  final TextEditingController descriptionController = TextEditingController();
 
-  final ExpenseService _service = ExpenseService();
+  final DatabaseHelper _database = DatabaseHelper.instance;
 
-  String _category = 'Food';
-  DateTime _date = DateTime.now();
+  String selectedType = 'expense';
+  String selectedCategory = 'Personal';
+  DateTime selectedDate = DateTime.now();
   bool _isSaving = false;
 
-  final List<String> _categories = [
+  final List<String> expenseCategories = [
+    'Personal',
     'Food',
     'Travel',
     'Shopping',
     'Bills',
     'Health',
     'Education',
-    'Entertainment',
     'Other',
   ];
 
-  @override
-  void dispose() {
-    _titleController.dispose();
-    _amountController.dispose();
-    _descriptionController.dispose();
-    super.dispose();
+  final List<String> incomeCategories = [
+    'Salary',
+    'Freelance',
+    'Business',
+    'Gift',
+    'Investment',
+    'Other',
+  ];
+
+  List<String> get currentCategories {
+    return selectedType == 'income' ? incomeCategories : expenseCategories;
   }
 
-  Future<void> _selectDate() async {
-    final selectedDate = await showDatePicker(
+  Future<void> _pickDate() async {
+    final picked = await showDatePicker(
       context: context,
-      initialDate: _date,
-      firstDate: DateTime(2020),
-      lastDate: DateTime.now(),
+      initialDate: selectedDate,
+      firstDate: DateTime(2000),
+      lastDate: DateTime(2100),
     );
 
-    if (selectedDate != null && mounted) {
+    if (picked != null && mounted) {
       setState(() {
-        _date = selectedDate;
+        selectedDate = picked;
       });
     }
   }
 
-  Future<void> _saveExpense() async {
-    if (_isSaving) return;
-
+  Future<void> _saveTransaction() async {
     if (!_formKey.currentState!.validate()) return;
-
-    FocusScope.of(context).unfocus();
 
     setState(() {
       _isSaving = true;
     });
 
     try {
-      final amount = double.parse(_amountController.text.trim());
-
-      final expense = ExpenseModel(
-        title: _titleController.text.trim(),
-        amount: amount,
-        category: _category,
-        date: _date,
-        description: _descriptionController.text.trim().isEmpty
+      final transaction = ExpenseModel(
+        title: titleController.text.trim(),
+        amount: double.parse(amountController.text.trim()),
+        category: selectedCategory,
+        date: selectedDate,
+        description: descriptionController.text.trim().isEmpty
             ? null
-            : _descriptionController.text.trim(),
+            : descriptionController.text.trim(),
+        type: selectedType,
       );
 
-      debugPrint('Saving expense...');
-
-      await _service.addExpense(expense).timeout(Duration(seconds: 15));
-
-      debugPrint('Expense saved successfully');
+      await _database.insertExpense(transaction);
 
       if (!mounted) return;
 
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Expense saved successfully'),
-          backgroundColor: Colors.green,
+          content: Text(
+            selectedType == 'income'
+                ? 'Income added successfully'
+                : 'Expense added successfully',
+          ),
+          backgroundColor: selectedType == 'income'
+              ? Colors.green
+              : AppColors.expense,
         ),
       );
 
       Navigator.pop(context, true);
-    } on TimeoutException {
+    } catch (e) {
       if (!mounted) return;
 
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Database timed out. Check SQLite web setup.')),
-      );
-    } catch (e, stackTrace) {
-      debugPrint('SAVE EXPENSE ERROR: $e');
-      debugPrintStack(stackTrace: stackTrace);
-
-      if (!mounted) return;
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Could not save: $e'),
-          duration: Duration(seconds: 6),
-          backgroundColor: Colors.red,
-        ),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Failed to save transaction: $e')));
     } finally {
       if (mounted) {
         setState(() {
@@ -129,237 +117,233 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
   }
 
   @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: AppColors.background,
-      appBar: AppBar(
-        title: Text(
-          'Add Expense',
-          style: TextStyle(fontWeight: FontWeight.bold),
-        ),
-      ),
-      body: SafeArea(
-        child: SingleChildScrollView(
-          padding: EdgeInsets.all(20),
-          child: Form(
-            key: _formKey,
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'Add New Expense',
-                  style: TextStyle(
-                    fontSize: 23,
-                    fontWeight: FontWeight.bold,
-                    color: AppColors.text,
-                  ),
-                ),
-                SizedBox(height: 6),
-                Text(
-                  'Enter your expense details below.',
-                  style: TextStyle(color: AppColors.grey),
-                ),
-                SizedBox(height: 24),
-
-                _FieldLabel('Expense Title'),
-                SizedBox(height: 8),
-                TextFormField(
-                  controller: _titleController,
-                  textCapitalization: TextCapitalization.sentences,
-                  decoration: _inputDecoration(
-                    hint: 'e.g. Lunch, Bus ticket',
-                    icon: Icons.receipt_long_outlined,
-                  ),
-                  validator: (value) {
-                    if (value == null || value.trim().isEmpty) {
-                      return 'Please enter an expense title';
-                    }
-                    return null;
-                  },
-                ),
-                SizedBox(height: 20),
-
-                _FieldLabel('Amount'),
-                SizedBox(height: 8),
-                TextFormField(
-                  controller: _amountController,
-                  keyboardType: TextInputType.numberWithOptions(decimal: true),
-                  decoration: _inputDecoration(
-                    hint: '0.00',
-                    icon: Icons.currency_rupee,
-                  ),
-                  validator: (value) {
-                    final amount = double.tryParse(value?.trim() ?? '');
-
-                    if (amount == null || !amount.isFinite || amount <= 0) {
-                      return 'Enter an amount greater than zero';
-                    }
-
-                    return null;
-                  },
-                ),
-                SizedBox(height: 20),
-
-                _FieldLabel('Category'),
-                SizedBox(height: 8),
-                DropdownButtonFormField<String>(
-                  value: _category,
-                  isExpanded: true,
-                  decoration: _inputDecoration(
-                    hint: 'Select category',
-                    icon: Icons.category_outlined,
-                  ),
-                  items: _categories.map((category) {
-                    return DropdownMenuItem<String>(
-                      value: category,
-                      child: Text(category),
-                    );
-                  }).toList(),
-                  onChanged: (value) {
-                    if (value != null) {
-                      setState(() {
-                        _category = value;
-                      });
-                    }
-                  },
-                ),
-                SizedBox(height: 20),
-
-                _FieldLabel('Expense Date'),
-                SizedBox(height: 8),
-                InkWell(
-                  onTap: _selectDate,
-                  borderRadius: BorderRadius.circular(12),
-                  child: Container(
-                    width: double.infinity,
-                    padding: EdgeInsets.all(16),
-                    decoration: BoxDecoration(
-                      color: Colors.white,
-                      border: Border.all(color: Colors.grey.shade300),
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    child: Row(
-                      children: [
-                        Icon(
-                          Icons.calendar_month_outlined,
-                          color: AppColors.primary,
-                        ),
-                        SizedBox(width: 12),
-                        Expanded(
-                          child: Text(
-                            '${_date.day.toString().padLeft(2, '0')}/'
-                            '${_date.month.toString().padLeft(2, '0')}/'
-                            '${_date.year}',
-                            style: TextStyle(fontSize: 15),
-                          ),
-                        ),
-                        Icon(Icons.keyboard_arrow_down, color: AppColors.grey),
-                      ],
-                    ),
-                  ),
-                ),
-                SizedBox(height: 20),
-
-                _FieldLabel('Description (Optional)'),
-                SizedBox(height: 8),
-                TextFormField(
-                  controller: _descriptionController,
-                  textCapitalization: TextCapitalization.sentences,
-                  maxLines: 3,
-                  decoration: _inputDecoration(
-                    hint: 'Add a note about this expense',
-                    icon: Icons.notes_outlined,
-                  ),
-                ),
-                SizedBox(height: 30),
-
-                SizedBox(
-                  width: double.infinity,
-                  height: 54,
-                  child: ElevatedButton(
-                    onPressed: _isSaving ? null : _saveExpense,
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: AppColors.primary,
-                      foregroundColor: Colors.white,
-                      disabledBackgroundColor: AppColors.primary.withValues(
-                        alpha: 0.6,
-                      ),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(14),
-                      ),
-                    ),
-                    child: _isSaving
-                        ? Row(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              SizedBox(
-                                height: 21,
-                                width: 21,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2,
-                                  color: Colors.white,
-                                ),
-                              ),
-                              SizedBox(width: 12),
-                              Text('Saving...'),
-                            ],
-                          )
-                        : Text(
-                            'Save Expense',
-                            style: TextStyle(
-                              fontSize: 16,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
+  void dispose() {
+    titleController.dispose();
+    amountController.dispose();
+    descriptionController.dispose();
+    super.dispose();
   }
-
-  InputDecoration _inputDecoration({
-    required String hint,
-    required IconData icon,
-  }) {
-    return InputDecoration(
-      hintText: hint,
-      prefixIcon: Icon(icon, color: AppColors.primary),
-      filled: true,
-      fillColor: Colors.white,
-      border: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(12),
-        borderSide: BorderSide(color: Colors.grey.shade300),
-      ),
-      enabledBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(12),
-        borderSide: BorderSide(color: Colors.grey.shade300),
-      ),
-      focusedBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(12),
-        borderSide: BorderSide(color: AppColors.primary, width: 1.5),
-      ),
-      errorMaxLines: 2,
-    );
-  }
-}
-
-class _FieldLabel extends StatelessWidget {
-  final String text;
-
-  _FieldLabel(this.text);
 
   @override
   Widget build(BuildContext context) {
-    return Text(
-      text,
-      style: TextStyle(
-        fontSize: 15,
-        fontWeight: FontWeight.w600,
-        color: AppColors.text,
+    final isIncome = selectedType == 'income';
+    final accentColor = isIncome ? Colors.green : AppColors.expense;
+
+    return Scaffold(
+      backgroundColor: AppColors.background,
+      appBar: AppBar(
+        title: Text(isIncome ? 'Add Income' : 'Add Expense'),
+        backgroundColor: AppColors.primary,
+        foregroundColor: Colors.white,
+      ),
+      body: SafeArea(
+        child: Form(
+          key: _formKey,
+          child: ListView(
+            padding: const EdgeInsets.all(20),
+            children: [
+              const Text(
+                'Transaction Type',
+                style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+              ),
+              const SizedBox(height: 12),
+
+              // Expense / Income selector
+              SegmentedButton<String>(
+                segments: const [
+                  ButtonSegment<String>(
+                    value: 'expense',
+                    label: Text('Expense'),
+                    icon: Icon(Icons.arrow_upward),
+                  ),
+                  ButtonSegment<String>(
+                    value: 'income',
+                    label: Text('Income'),
+                    icon: Icon(Icons.arrow_downward),
+                  ),
+                ],
+                selected: {selectedType},
+                onSelectionChanged: (values) {
+                  setState(() {
+                    selectedType = values.first;
+
+                    if (!currentCategories.contains(selectedCategory)) {
+                      selectedCategory = currentCategories.first;
+                    }
+                  });
+                },
+                showSelectedIcon: false,
+                style: ButtonStyle(
+                  foregroundColor: WidgetStateProperty.resolveWith<Color?>((
+                    states,
+                  ) {
+                    if (states.contains(WidgetState.selected)) {
+                      return Colors.white;
+                    }
+                    return AppColors.text;
+                  }),
+                  backgroundColor: WidgetStateProperty.resolveWith<Color?>((
+                    states,
+                  ) {
+                    if (states.contains(WidgetState.selected)) {
+                      return selectedType == 'income'
+                          ? Colors.green
+                          : AppColors.expense;
+                    }
+                    return Colors.white;
+                  }),
+                ),
+              ),
+
+              const SizedBox(height: 24),
+
+              // Title
+              TextFormField(
+                controller: titleController,
+                textCapitalization: TextCapitalization.sentences,
+                decoration: InputDecoration(
+                  labelText: isIncome ? 'Income title' : 'Expense title',
+                  hintText: isIncome
+                      ? 'e.g. Monthly salary'
+                      : 'e.g. Grocery shopping',
+                  prefixIcon: const Icon(Icons.title),
+                  border: const OutlineInputBorder(),
+                ),
+                validator: (value) {
+                  if (value == null || value.trim().isEmpty) {
+                    return 'Please enter a title';
+                  }
+                  return null;
+                },
+              ),
+
+              const SizedBox(height: 18),
+
+              // Amount
+              TextFormField(
+                controller: amountController,
+                keyboardType: const TextInputType.numberWithOptions(
+                  decimal: true,
+                ),
+                decoration: const InputDecoration(
+                  labelText: 'Amount',
+                  prefixText: '₹ ',
+                  prefixIcon: Icon(Icons.currency_rupee),
+                  border: OutlineInputBorder(),
+                ),
+                validator: (value) {
+                  final amount = double.tryParse(value?.trim() ?? '');
+
+                  if (amount == null || !amount.isFinite || amount <= 0) {
+                    return 'Enter a valid amount greater than zero';
+                  }
+                  return null;
+                },
+              ),
+
+              const SizedBox(height: 18),
+
+              // Category
+              DropdownButtonFormField<String>(
+                value: selectedCategory,
+                decoration: const InputDecoration(
+                  labelText: 'Category',
+                  prefixIcon: Icon(Icons.category_outlined),
+                  border: OutlineInputBorder(),
+                ),
+                items: currentCategories.map((category) {
+                  return DropdownMenuItem<String>(
+                    value: category,
+                    child: Text(category),
+                  );
+                }).toList(),
+                onChanged: (value) {
+                  if (value != null) {
+                    setState(() {
+                      selectedCategory = value;
+                    });
+                  }
+                },
+              ),
+
+              const SizedBox(height: 18),
+
+              // Date
+              InkWell(
+                onTap: _pickDate,
+                borderRadius: BorderRadius.circular(8),
+                child: InputDecorator(
+                  decoration: const InputDecoration(
+                    labelText: 'Date',
+                    prefixIcon: Icon(Icons.calendar_month),
+                    border: OutlineInputBorder(),
+                  ),
+                  child: Text(
+                    '${selectedDate.day.toString().padLeft(2, '0')}/'
+                    '${selectedDate.month.toString().padLeft(2, '0')}/'
+                    '${selectedDate.year}',
+                  ),
+                ),
+              ),
+
+              const SizedBox(height: 18),
+
+              // Optional description
+              TextFormField(
+                controller: descriptionController,
+                maxLines: 3,
+                textCapitalization: TextCapitalization.sentences,
+                decoration: const InputDecoration(
+                  labelText: 'Description (optional)',
+                  hintText: 'Add some details',
+                  prefixIcon: Icon(Icons.notes),
+                  border: OutlineInputBorder(),
+                  alignLabelWithHint: true,
+                ),
+              ),
+
+              const SizedBox(height: 28),
+
+              // Save
+              SizedBox(
+                height: 52,
+                child: ElevatedButton.icon(
+                  onPressed: _isSaving ? null : _saveTransaction,
+                  icon: _isSaving
+                      ? const SizedBox(
+                          height: 20,
+                          width: 20,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: Colors.white,
+                          ),
+                        )
+                      : const Icon(Icons.save_outlined),
+                  label: Text(
+                    _isSaving
+                        ? 'Saving...'
+                        : isIncome
+                        ? 'Save Income'
+                        : 'Save Expense',
+                    style: const TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: isIncome
+                        ? Colors.green
+                        : AppColors.primary,
+                    foregroundColor: Colors.white,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }

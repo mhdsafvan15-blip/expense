@@ -1,44 +1,34 @@
 import 'package:flutter/foundation.dart';
 import 'package:nenn/model/expense_model.dart';
-import 'package:path/path.dart';
+import 'package:path/path.dart' as p;
 import 'package:sqflite/sqflite.dart';
 import 'package:sqflite_common_ffi_web/sqflite_ffi_web.dart';
 
 class DatabaseHelper {
-  DatabaseHelper._();
+  DatabaseHelper._internal();
 
-  static final DatabaseHelper instance = DatabaseHelper._();
+  static final DatabaseHelper instance = DatabaseHelper._internal();
 
   static Database? _database;
 
   Future<Database> get database async {
-    if (_database != null && _database!.isOpen) {
-      return _database!;
-    }
-
+    if (_database != null) return _database!;
     _database = await _initDatabase();
     return _database!;
   }
 
   Future<Database> _initDatabase() async {
-    // Select the correct database factory for Chrome or native.
     if (kIsWeb) {
       databaseFactory = databaseFactoryFfiWeb;
     }
 
-    final String dbPath;
-
-    if (kIsWeb) {
-      // Web database is persisted using IndexedDB.
-      dbPath = 'expense_manager_web.db';
-    } else {
-      final directory = await getDatabasesPath();
-      dbPath = join(directory, 'expense_manager.db');
-    }
+    final path = kIsWeb
+        ? 'expense_manager_web.db'
+        : p.join(await getDatabasesPath(), 'expense_manager.db');
 
     return openDatabase(
-      dbPath,
-      version: 1,
+      path,
+      version: 2,
       onCreate: (db, version) async {
         await db.execute('''
           CREATE TABLE expenses (
@@ -47,89 +37,96 @@ class DatabaseHelper {
             amount REAL NOT NULL,
             category TEXT NOT NULL,
             date TEXT NOT NULL,
-            description TEXT
+            description TEXT,
+            type TEXT NOT NULL DEFAULT 'expense'
           )
         ''');
+      },
+      onUpgrade: (db, oldVersion, newVersion) async {
+        if (oldVersion < 2) {
+          await db.execute(
+            "ALTER TABLE expenses ADD COLUMN type TEXT NOT NULL DEFAULT 'expense'",
+          );
+        }
       },
     );
   }
 
-  // CREATE
   Future<int> insertExpense(ExpenseModel expense) async {
     final db = await database;
-
-    final data = expense.toMap()..remove('id');
-
-    return db.insert(
-      'expenses',
-      data,
-      conflictAlgorithm: ConflictAlgorithm.abort,
-    );
+    return db.insert('expenses', expense.toMap());
   }
 
-  // READ ALL
-  Future<List<ExpenseModel>> getExpenses() async {
+  Future<List<ExpenseModel>> getExpenses({String? type}) async {
     final db = await database;
 
-    final rows = await db.query('expenses', orderBy: 'date DESC, id DESC');
+    final List<Map<String, dynamic>> maps = await db.query(
+      'expenses',
+      where: type == null ? null : 'type = ?',
+      whereArgs: type == null ? null : [type],
+      orderBy: 'date DESC, id DESC',
+    );
 
-    return rows.map(ExpenseModel.fromMap).toList();
+    return maps.map(ExpenseModel.fromMap).toList();
   }
 
-  // READ ONE
   Future<ExpenseModel?> getExpenseById(int id) async {
     final db = await database;
 
-    final rows = await db.query(
+    final result = await db.query(
       'expenses',
       where: 'id = ?',
       whereArgs: [id],
       limit: 1,
     );
 
-    if (rows.isEmpty) return null;
-
-    return ExpenseModel.fromMap(rows.first);
+    if (result.isEmpty) return null;
+    return ExpenseModel.fromMap(result.first);
   }
 
-  // UPDATE
   Future<int> updateExpense(ExpenseModel expense) async {
-    final id = expense.id;
+    final db = await database;
 
-    if (id == null) {
-      throw ArgumentError('Expense ID is required.');
+    if (expense.id == null) {
+      throw ArgumentError('Expense ID is required for update');
     }
 
-    final db = await database;
-    final data = expense.toMap()..remove('id');
-
-    return db.update('expenses', data, where: 'id = ?', whereArgs: [id]);
+    return db.update(
+      'expenses',
+      expense.toMap()..remove('id'),
+      where: 'id = ?',
+      whereArgs: [expense.id],
+    );
   }
 
-  // DELETE
   Future<int> deleteExpense(int id) async {
     final db = await database;
 
     return db.delete('expenses', where: 'id = ?', whereArgs: [id]);
   }
 
-  // TOTAL
   Future<double> getTotalExpense() async {
+    return _getTotalByType('expense');
+  }
+
+  Future<double> getTotalIncome() async {
+    return _getTotalByType('income');
+  }
+
+  Future<double> _getTotalByType(String type) async {
     final db = await database;
 
     final result = await db.rawQuery(
-      'SELECT SUM(amount) AS total FROM expenses',
+      'SELECT SUM(amount) AS total FROM expenses WHERE type = ?',
+      [type],
     );
 
     return (result.first['total'] as num?)?.toDouble() ?? 0.0;
   }
 
-  // CLOSE
   Future<void> closeDatabase() async {
-    final db = _database;
-
-    if (db != null) {
-      await db.close();
+    if (_database != null) {
+      await _database!.close();
       _database = null;
     }
   }

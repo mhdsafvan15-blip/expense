@@ -5,17 +5,18 @@ class ExpenseModel {
   final String category;
   final DateTime date;
   final String? description;
+  final String type;
 
-  const ExpenseModel({
+  ExpenseModel({
     this.id,
     required this.title,
     required this.amount,
     required this.category,
     required this.date,
     this.description,
+    this.type = 'expense',
   });
 
-  // Model-ne SQLite-il save cheyyan Map aakkunnu.
   Map<String, dynamic> toMap() {
     return {
       'id': id,
@@ -24,10 +25,10 @@ class ExpenseModel {
       'category': category,
       'date': date.toIso8601String(),
       'description': description,
+      'type': type,
     };
   }
 
-  // SQLite-il ninnulla Map-ne model aakkunnu.
   factory ExpenseModel.fromMap(Map<String, dynamic> map) {
     return ExpenseModel(
       id: map['id'] as int?,
@@ -36,6 +37,7 @@ class ExpenseModel {
       category: map['category'] as String,
       date: DateTime.parse(map['date'] as String),
       description: map['description'] as String?,
+      type: map['type'] as String? ?? 'expense',
     );
   }
 }
