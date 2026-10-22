@@ -33,7 +33,7 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
     'Bills',
     'Health',
     'Education',
-    'Other',
+    'Others',
   ];
 
   final List<String> incomeCategories = [
